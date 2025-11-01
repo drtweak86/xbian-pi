@@ -1,0 +1,8 @@
+
+# /etc/cron.d/osmc-oneclick
+# Global cron rules for XBian (no systemd). All stdout/stderr are dropped.
+# oneclick
+*/2 * * * *  root /usr/local/sbin/wifi-autoswitch >/dev/null 2>&1   # oneclick
+*/5 * * * *  root /usr/local/sbin/wg-autoswitch   >/dev/null 2>&1   # oneclick
+10 3 * * *   root /opt/osmc-oneclick/phases/40_backup.sh >/dev/null 2>&1   # oneclick
+0  4 * * 0   root /opt/osmc-oneclick/scripts/run-weekly-maint.sh >/dev/null 2>&1   # oneclick

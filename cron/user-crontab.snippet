@@ -1,0 +1,6 @@
+
+# oneclick (user crontab fallback)
+*/2 * * * *  /usr/local/sbin/wifi-autoswitch >/dev/null 2>&1
+*/5 * * * *  /usr/local/sbin/wg-autoswitch   >/dev/null 2>&1
+10 3 * * *   /opt/osmc-oneclick/phases/40_backup.sh >/dev/null 2>&1
+0  4 * * 0   /opt/osmc-oneclick/scripts/run-weekly-maint.sh >/dev/null 2>&1

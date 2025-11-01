@@ -1,0 +1,11 @@
+
+<advancedsettings>
+  <videolibrary>
+    <itemseparator> • </itemseparator>
+  </videolibrary>
+  <network>
+    <curlclienttimeout>20</curlclienttimeout>
+    <curllowspeedtime>20</curllowspeedtime>
+  </network>
+  <!-- Omega+ uses dynamic cache; no cache override here -->
+</advancedsettings>
