@@ -1,58 +1,90 @@
 #!/bin/bash
 # =====================================================================
-#  Bat-Net Wi-Fi Auto-Switch for XBian / OSMC
-#  ---------------------------------------------------------------
-#  Version: 1.3-XB-Stable
-#  Author : drtweak86 (Jordan)
-#  Purpose: Automatically prefer 5GHz Wi-Fi networks, fall back to 2.4GHz,
-#           and trigger WireGuard profile switching when connected.
-#  Location: /usr/local/sbin/wifi-autoswitch.sh
+#  Bat-Net Wi-Fi Auto-Switch (XBian/OSMC)
+#  Version: 1.4-XB-RSSI
+#  Prefers 5 GHz, falls back to 2.4 GHz, optional WireGuard trigger.
+#  Place at: /usr/local/sbin/wifi-autoswitch.sh
 # =====================================================================
+
+set -e
 
 LOGFILE="/var/log/wifi-autoswitch.log"
 DATE=$(date '+%Y-%m-%d %H:%M:%S')
 
-# --- USER SETTINGS ---------------------------------------------------
-PREF5="Home_5GHz"       # change to your 5GHz SSID
-PREF24="Home_2.4GHz"    # change to your 2.4GHz SSID
-WLAN="wlan0"            # network interface name
-WG_SWITCH="/usr/local/sbin/wg-switch"
+# ---- USER SETTINGS ---------------------------------------------------
+WLAN="wlan0"
+PREF5="Home_5GHz"        # your 5 GHz SSID
+PREF24="Home_2.4GHz"     # your 2.4 GHz SSID
+RSSI_MIN_5G=-70          # only switch to 5 GHz if signal is better than this
+WG_SWITCH="/usr/local/sbin/wg-switch"   # optional
 # ---------------------------------------------------------------------
 
-echo "[$DATE] ==== Bat-Net Auto-Switch Check Started ====" >> "$LOGFILE"
+log(){ echo "[$DATE] $*" >> "$LOGFILE"; }
 
-# Get current SSID
-CURR_SSID=$(iwgetid -r 2>/dev/null)
+# Return RSSI (dBm) for an SSID (first match), or empty if not found
+rssi_for_ssid() {
+  local ssid="$1"
+  iwlist "$WLAN" scan 2>/dev/null \
+    | awk -v s="$ssid" '
+        /Cell/ {sig=""; ss=""; freq=""}
+        /ESSID:/ {ss=$0; gsub(/.*ESSID:"|".*/,"",ss)}
+        /Signal level=/ {sig=$0; gsub(/.*Signal level=|-| dBm/,"",sig); sig=-sig}
+        /Frequency:/ {freq=$0; gsub(/.*Frequency:| GHz.*/,"",freq); freq=freq*1000}
+        ss==s { if (sig!="") {print sig; exit} }
+      '
+}
 
-# If not connected, try 5GHz first
+# Is SSID present on 5 GHz band?
+ssid_is_5g() {
+  local ssid="$1"
+  iwlist "$WLAN" scan 2>/dev/null \
+    | awk -v s="$ssid" '
+        /Cell/ {ss=""; freq=""}
+        /ESSID:/ {ss=$0; gsub(/.*ESSID:"|".*/,"",ss)}
+        /Frequency:/ {freq=$0; gsub(/.*Frequency:| GHz.*/,"",freq); mhz=freq*1000}
+        ss==s { if (mhz>=5000) {print "yes"; exit} }
+      ' | grep -q yes
+}
+
+log "==== Bat-Net Auto-Switch check ===="
+
+CURR_SSID=$(iwgetid -r 2>/dev/null || true)
+
+# If not connected, try 5 GHz first
 if [ -z "$CURR_SSID" ]; then
-    echo "[$DATE] Not connected — trying preferred 5GHz first..." >> "$LOGFILE"
-    wpa_cli -i "$WLAN" select_network $(wpa_cli -i "$WLAN" list_networks | grep "$PREF5" | awk '{print $1}') >/dev/null 2>&1
-    sleep 10
-    CURR_SSID=$(iwgetid -r 2>/dev/null)
+  log "Not connected — trying $PREF5 first."
+  nid=$(wpa_cli -i "$WLAN" list_networks | awk -v s="$PREF5" '$0~s{print $1; exit}')
+  [ -n "$nid" ] && wpa_cli -i "$WLAN" select_network "$nid" >/dev/null 2>&1
+  sleep 8
+  CURR_SSID=$(iwgetid -r 2>/dev/null || true)
 fi
 
-# If currently on 2.4GHz, check if 5GHz is available
+# If we’re on 2.4 GHz, see if a good 5 GHz is around
 if [ "$CURR_SSID" = "$PREF24" ]; then
-    iwlist "$WLAN" scan | grep -q "$PREF5"
-    if [ $? -eq 0 ]; then
-        echo "[$DATE] 5GHz visible — switching from 2.4GHz to 5GHz..." >> "$LOGFILE"
-        wpa_cli -i "$WLAN" disconnect >/dev/null 2>&1
-        wpa_cli -i "$WLAN" select_network $(wpa_cli -i "$WLAN" list_networks | grep "$PREF5" | awk '{print $1}') >/dev/null 2>&1
-        sleep 10
-        CURR_SSID=$(iwgetid -r 2>/dev/null)
-        echo "[$DATE] Reconnected to: $CURR_SSID" >> "$LOGFILE"
+  if ssid_is_5g "$PREF5"; then
+    RSSI=$(rssi_for_ssid "$PREF5")
+    if [ -n "$RSSI" ] && [ "$RSSI" -ge "$RSSI_MIN_5G" ]; then
+      log "5 GHz ($PREF5) visible with RSSI ${RSSI}dBm ≥ ${RSSI_MIN_5G} — switching."
+      wpa_cli -i "$WLAN" disconnect >/dev/null 2>&1
+      nid=$(wpa_cli -i "$WLAN" list_networks | awk -v s="$PREF5" '$0~s{print $1; exit}')
+      [ -n "$nid" ] && wpa_cli -i "$WLAN" select_network "$nid" >/dev/null 2>&1
+      sleep 8
+      log "Reconnected to: $(iwgetid -r 2>/dev/null)"
     else
-        echo "[$DATE] 5GHz not found — remaining on 2.4GHz" >> "$LOGFILE"
+      log "5 GHz present but weak (RSSI=${RSSI:-unknown}) — staying on 2.4 GHz."
     fi
+  else
+    log "5 GHz SSID not found — staying on 2.4 GHz."
+  fi
 else
-    echo "[$DATE] Connected to: $CURR_SSID" >> "$LOGFILE"
+  [ -z "$CURR_SSID" ] && CURR_SSID="(none)"
+  log "Connected to: $CURR_SSID"
 fi
 
-# Optional: Trigger WireGuard profile auto-switch
+# Optional: trigger WireGuard auto profile switch
 if [ -x "$WG_SWITCH" ]; then
-    echo "[$DATE] Triggering WireGuard auto-switch..." >> "$LOGFILE"
-    "$WG_SWITCH" auto >> "$LOGFILE" 2>&1
+  log "Triggering wg-switch auto…"
+  "$WG_SWITCH" auto >> "$LOGFILE" 2>&1 || true
 fi
 
-echo "[$DATE] ==== Check Complete ====" >> "$LOGFILE"
+log "Check complete."
