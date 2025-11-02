@@ -111,8 +111,8 @@ main(){
   read -r AVG_MS LOSS_PCT <<<"$(latency_check)"
 
   # Coerce to integers for safe math
-  a_int=${AVG_MS%.*}; [ -z "$a_int" ] && a_int=0
-  l_int=$(printf '%s' "$LOSS_PCT" | tr -cd '0-9'); [ -z "$l_int" ] && l_int=0
+  a_int=$(printf "%s" "$AVG_MS" | tr -cd "0-9" | cut -c1-5); [ -z "$a_int" ] && a_int=0
+  l_int=$(printf "%s" "$LOSS_PCT" | tr -cd "0-9"); [ -z "$l_int" ] && l_int=0
 
   local LABEL; LABEL=$(qos_label "$AVG_MS" "$LOSS_PCT")
   log "Now: SSID=${CURR_SSID:-none} BSSID=${CURR_BSSID:-none} band=${CURR_BAND:-NA} freq=${CURR_FREQ:-NA}MHz | QoS=${LABEL} avg=${AVG_MS}ms loss=${LOSS_PCT}%"
