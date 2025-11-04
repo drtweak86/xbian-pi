@@ -1,8 +1,13 @@
-
 # /etc/cron.d/osmc-oneclick
 # Global cron rules for XBian (no systemd). All stdout/stderr are dropped.
-# oneclick
-*/2 * * * *  root /usr/local/sbin/wifi-autoswitch >/dev/null 2>&1   # oneclick
-*/5 * * * *  root /usr/local/sbin/wg-autoswitch   >/dev/null 2>&1   # oneclick
-10 3 * * *   root /opt/osmc-oneclick/phases/40_backup.sh >/dev/null 2>&1   # oneclick
-0  4 * * 0   root /opt/osmc-oneclick/scripts/run-weekly-maint.sh >/dev/null 2>&1   # oneclick
+
+# Network autoswitch jobs
+*/2 * * * *  root  /usr/local/sbin/wifi-autoswitch  >/dev/null 2>&1
+*/5 * * * *  root  /usr/local/sbin/wg-autoswitch    >/dev/null 2>&1
+
+# === Weekly Backup and Maintenance ===
+# Weekly snapshot → rclone cloud, Sunday 03:05
+5 3 * * 0  root  REMOTE_NAME=cloud REMOTE_PATH=xbian-backups /opt/xbian-pi/phases/40_backup.sh >/dev/null 2>&1
+
+# Weekly cleanup & maintenance, Sunday 04:00
+0 4 * * 0  root  /opt/xbian-pi/scripts/run-weekly-maint.sh >/dev/null 2>&1
