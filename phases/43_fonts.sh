@@ -1,32 +1,68 @@
+#!/bin/sh
+# FrankenPi: Install Exo2 fonts + Font.xml for AF²
+set -eu
+. /usr/local/bin/frankenpi-compat.sh  # log, svc_* if needed
 
-#!/usr/bin/env bash
-set -euo pipefail
-. /opt/osmc-oneclick/phases/31_helpers.sh
-
-CANDIDATE_SKINS=("skin.arctic.fuse.2")
-ASSETS_ROOT="/opt/osmc-oneclick/assets"
+ASSETS_ROOT="/usr/local/share/frankenpi/assets"
 FONT_XML_SRC="${ASSETS_ROOT}/config/Font.xml"
 FONTS_SRC_DIR="${ASSETS_ROOT}/fonts"
-NEEDED_TTFS=("Exo2-Regular.ttf" "Exo2-Light.ttf" "Exo2-Bold.ttf")
 
-find_skin_path() {
-  for sid in "${CANDIDATE_SKINS[@]}"; do
-    local p="/home/xbian/.kodi/addons/${sid}"
-    [ -d "$p" ] && { echo "$sid|$p"; return 0; }
-  done
-  return 1
+# Skin targets (latest AF²)
+CANDIDATE_SKINS="skin.arctic.fuse.2"
+
+need_file() { [ -f "$1" ] || { echo "[fonts][WARN] missing: $1" >&2; exit 0; }; }
+
+need_file "$FONT_XML_SRC"
+need_file "${FONTS_SRC_DIR}/Exo2-Regular.ttf"
+need_file "${FONTS_SRC_DIR}/Exo2-Light.ttf"
+need_file "${FONTS_SRC_DIR}/Exo2-Bold.ttf"
+
+install_into_skin() {
+  skin_dir="$1"
+  [ -d "$skin_dir" ] || return 1
+  fonts_dir="$skin_dir/media/fonts"
+  layout_dir="$skin_dir/1080i"
+  mkdir -p "$fonts_dir" "$layout_dir"
+  cp -f "$FONTS_SRC_DIR"/*.ttf "$fonts_dir/"
+  cp -f "$FONT_XML_SRC" "$layout_dir/Font.xml"
+  chown -R "$(stat -c '%U:%G' "$skin_dir")" "$skin_dir" 2>/dev/null || true
+  echo "[fonts] Patched skin at: $skin_dir"
+  return 0
 }
 
-pair="$(find_skin_path)" || { warn "[fonts] Target skin not installed yet"; exit 0; }
-SKIN_ID="${pair%%|*}"; SKIN_PATH="${pair##*|}"
-FONTS_DIR="${SKIN_PATH}/media/fonts"; LAYOUT_DIR="${SKIN_PATH}/1080i"
+install_into_kodi_media() {
+  kh="$1"
+  [ -d "$kh" ] || return 0
+  mkdir -p "$kh/media/Fonts"
+  cp -f "$FONTS_SRC_DIR"/*.ttf "$kh/media/Fonts/"
+  chown -R "$(stat -c '%U:%G' "$kh")" "$kh/media/Fonts" 2>/dev/null || true
+  echo "[fonts] Copied TTFs to: $kh/media/Fonts"
+}
 
-[ -f "$FONT_XML_SRC" ] || { warn "[fonts] Missing Font.xml"; exit 1; }
-for f in "${NEEDED_TTFS[@]}"; do [ -f "${FONTS_SRC_DIR}/${f}" ] || { warn "[fonts] Missing ${f}"; exit 1; }; done
+patched=0
 
-mkdir -p "$FONTS_DIR" "$LAYOUT_DIR"
-cp -f "${FONTS_SRC_DIR}/"*.ttf "$FONTS_DIR/"
-cp -f "$FONT_XML_SRC" "${LAYOUT_DIR}/Font.xml"
-chown -R xbian:xbian "$SKIN_PATH" || true
-kodi_send -a "ReloadSkin()" >/dev/null 2>&1 || true
-echo "[fonts] Installed EXO2 fonts for ${SKIN_ID}"
+# Patch any installed AF² skin for any user home
+for kh in /root/.kodi /home/*/.kodi; do
+  [ -d "$kh" ] || continue
+  # drop TTFs for general use
+  install_into_kodi_media "$kh"
+
+  for sid in $CANDIDATE_SKINS; do
+    sdir="$kh/addons/$sid"
+    if install_into_skin "$sdir"; then
+      patched=1
+    fi
+  done
+done
+
+if [ "$patched" -eq 0 ]; then
+  echo "[fonts][WARN] Target skin not installed yet; run again after addons."
+  exit 0
+fi
+
+# Try to reload skin (best-effort)
+if command -v kodi-send >/dev/null 2>&1; then
+  kodi-send --action="ReloadSkin()" >/dev/null 2>&1 || true
+fi
+
+echo "[fonts] EXO2 fonts + Font.xml installed."
